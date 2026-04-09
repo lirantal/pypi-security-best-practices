@@ -27,7 +27,7 @@
 - security vulnerability scanning and package health signals
 - instructions for the `uv` and `pip` package managers
 
-**Context**: The LiteLLM/Telnyx[^1], Ultralytics[^2] and other incidents are a growing concern of supply chain security attacks and compromised PyPI packages. Follow these developer security best practices around PyPI, package maintenance and secure local development to mitigate security risks.
+**Context**: The LiteLLM/Telnyx[^1] (119k+ malicious downloads in under 3 hours, 40-50% of installs unpinned), Ultralytics[^2] and other incidents are a growing concern of supply chain security attacks and compromised PyPI packages. Follow these developer security best practices around PyPI, package maintenance and secure local development to mitigate security risks.
 
 ---
 
@@ -112,12 +112,12 @@ Not all packages provide pre-built wheels for every platform. If a build is requ
 ## 2. Install with Cooldown
 
 > [!WARNING]
-> Newly released packages and versions may contain malicious code that is often quickly discovered by the community within hours or days and subsequently yanked or removed. The LiteLLM supply chain attack[^1] was live on PyPI for approximately 40 minutes before being quarantined.
+> Newly released packages and versions may contain malicious code that is often quickly discovered by the community within hours or days and subsequently yanked or removed. The LiteLLM supply chain attack[^1] was live on PyPI for 2 hours and 32 minutes before being quarantined — during which 119,000+ downloads occurred, many from unpinned installations fetching the latest version.
 
-Attackers exploit PyPI's versioning and publishing model to push malicious versions of packages. By implementing a "cooldown" period before installing or upgrading to new package versions, you reduce the risk of installing compromised packages that may be quickly discovered and removed from the index.
+Attackers exploit PyPI's versioning and publishing model to push malicious versions of packages. During the LiteLLM incident, **40-50% of all installs were unpinned** and fetching the latest version on each invocation — leaving very little time for researchers and PyPI admins to report, triage, and quarantine malware[^1]. By implementing a "cooldown" period before installing or upgrading to new package versions, you reduce the risk of installing compromised packages that may be quickly discovered and removed from the index.
 
 > [!TIP]
-> **Security Best Practice**: Configure your package manager to delay installations of recently published packages, allowing time for the community to discover and report potential security issues. A 7-day cooldown is a practical default; use 30 days for production deployments requiring higher assurance[^4][^5].
+> **Security Best Practice**: Configure your package manager to delay installations of recently published packages, allowing time for the community to discover and report potential security issues. PyPI recommends a minimum of 3 days (`P3D`); consider 7 days for general use and 30 days for production deployments requiring higher assurance[^1][^4][^5].
 
 > [!NOTE]
 > **How to implement?**
@@ -149,36 +149,46 @@ Attackers exploit PyPI's versioning and publishing model to push malicious versi
 
 ### 2.1. uv exclude-newer cooldown
 
-The `exclude-newer` setting in uv creates a dependency cooldown that ignores packages published within the specified time window. Most malicious uploads to PyPI are detected within a 7-day window — the LiteLLM supply chain attack was discovered and quarantined within 40 minutes[^1], and a 7-day buffer would have been more than sufficient.
+The `exclude-newer` setting in uv creates a dependency cooldown that ignores packages published within the specified time window. The LiteLLM supply chain attack was discovered and quarantined within 2 hours and 32 minutes[^1] — even a 3-day cooldown would have been more than sufficient to avoid the compromised versions entirely.
 
 ```toml
 # pyproject.toml
 [tool.uv]
-exclude-newer = "7 days"
+exclude-newer = "P3D"  # "3 days" in RFC 3339 format
 ```
 
 Use it with `uv pip compile` to generate pinned requirements with cooldown:
 
 ```bash
-$ uv pip compile --exclude-newer "7 days" requirements.in -o requirements.txt
+$ uv pip compile --exclude-newer "3 days" requirements.in -o requirements.txt
 ```
 
 ### 2.2. pip uploaded-prior-to cooldown
 
-Starting with pip 26+, use the `--uploaded-prior-to` flag to only consider packages uploaded before a specific timestamp:
+Starting with pip v26.1, you can set **relative** dependency cooldowns directly in your `pip.conf` file, matching uv's ergonomics[^1][^15]:
 
-```bash
-$ pip install --uploaded-prior-to "$(date -u -v-7d '+%Y-%m-%dT%H:%M:%SZ')" -r requirements.txt
+```ini
+# ~/.config/pip/pip.conf (macOS/Linux)
+[install]
+uploaded-prior-to = P3D
 ```
 
-Or set it persistently via pip configuration:
+With pip v26.0, only absolute timestamps are supported, typically paired with `date` for a relative offset:
 
 ```bash
-$ pip config set global.uploaded_prior_to "$(date -u -v-7d '+%Y-%m-%dT%H:%M:%SZ')"
+$ python -m pip install \
+  --uploaded-prior-to=$(date -d '-3days' -Idate) \
+  <package-name>
 ```
+
+> [!TIP]
+> To **bypass the cooldown** for urgent security patches, set `--uploaded-prior-to=P0D` to get the actual latest release:
+> ```bash
+> $ python -m pip install --uploaded-prior-to=P0D <package-name>==26.3.31
+> ```
 
 > [!NOTE]
-> The pip `--uploaded-prior-to` approach requires manual date management. Consider a daily cron job or shell profile function to keep the date rolling. Prefer uv's `exclude-newer` with duration syntax for automated workflows[^5].
+> Dependency cooldowns should be paired with a vulnerability scanning strategy (see [section 6](#6-scan-for-known-vulnerabilities)) so security updates aren't delayed. Dependabot and Renovate both bypass cooldowns by default for security updates[^1].
 
 ### 2.3. Dependabot and Renovate cooldowns
 
@@ -287,10 +297,14 @@ Ensure proper lockfile management across your development workflow:
 
 **Commit lockfiles to version control:**
 - `uv.lock` (uv)
-- `requirements.txt` with hashes (pip)
+- `requirements.txt` with hashes (pip-compile/uv pip compile)
+- `pylock.toml` (pip lock — experimental, [PEP 751](https://peps.python.org/pep-0751/))
 - `Pipfile.lock` (pipenv)
 - `pdm.lock` (pdm)
 - `poetry.lock` (poetry)
+
+> [!CAUTION]
+> **`pip freeze` does NOT create a lockfile.** It only records packages and their versions — it does not include checksums or hashes. Without hashes, there is no protection against package tampering. Use `uv lock`, `pip-compile --generate-hashes`, or `pip lock` (experimental) instead[^1].
 
 ---
 
@@ -446,6 +460,10 @@ Socket Firewall performs deep analysis on packages using Socket's threat intelli
 
 You can also use Datadog's open-source [Supply-Chain Firewall (SCFW)](https://github.com/DataDog/supply-chain-firewall) which transparently wraps `pip install` and blocks known malicious packages[^9].
 
+### Report suspicious packages
+
+If you encounter a suspicious package on PyPI, use the ["Report project as malware"](https://blog.pypi.org/posts/2024-03-06-malware-reporting-evolved/) feature on the package's PyPI page. During the LiteLLM incident, PyPI received 13 inbound reports from concerned users through this feature, accelerating review and quarantine. PyPI maintains a pool of trusted reporters whose reports add weight and can trigger automated quarantine[^1].
+
 ---
 
 ## 8. No Plaintext Secrets in .env Files
@@ -533,10 +551,10 @@ Environment variables and `.env` files are commonly used to store API keys, data
 > [!WARNING]
 > PyPI accounts without two-factor authentication are vulnerable to credential theft and account takeover attacks, potentially allowing malicious actors to publish compromised versions of your packages. The LiteLLM incident[^1] demonstrated how compromised maintainer credentials can lead to malicious package uploads reaching millions of users.
 
-The LiteLLM/Telnyx supply chain attack[^1] in March 2026 showed the devastating impact of compromised PyPI credentials — malicious versions of packages downloaded millions of times per day were published and remained live until community detection triggered quarantine. Two-factor authentication provides essential protection against credential theft and account takeover.
+The LiteLLM/Telnyx supply chain attack[^1] in March 2026 showed the devastating impact of compromised credentials — 119,000+ downloads of malicious versions occurred during the 2.5-hour exposure window before community detection triggered quarantine. Two-factor authentication provides essential protection against credential theft and account takeover.
 
 > [!TIP]
-> **Security Best Practice**: Enable two-factor authentication on all PyPI accounts using a hardware security key (preferred) or an authentication application. Set up at least two 2FA methods and provision recovery codes[^10].
+> **Security Best Practice**: Enable two-factor authentication on **all accounts associated with open source development** — not just PyPI, but also GitHub, GitLab, Codeberg, and your email provider. Use phishing-resistant hardware security keys for the strongest protection[^1][^10].
 
 > [!NOTE]
 > **How to implement?**
@@ -545,7 +563,7 @@ The LiteLLM/Telnyx supply chain attack[^1] in March 2026 showed the devastating 
 > 2. Under "Two factor authentication (2FA)", add a security key (WebAuthn) or authentication application (TOTP)
 > 3. Provision recovery codes as a backup
 >
-> PyPI recommends setting up **at least two** supported 2FA methods. Hardware security keys (FIDO2/WebAuthn) are preferred over TOTP applications as they are resistant to phishing attacks.
+> PyPI recommends setting up **at least two** supported 2FA methods. Hardware security keys (FIDO2/WebAuthn) are preferred over TOTP applications as they are resistant to phishing attacks. [PyPI has required 2FA for publishing since the beginning of 2024](https://blog.pypi.org/posts/2024-01-01-2fa-enforced/), but enabling phishing-resistant 2FA like a hardware key provides further protection[^1].
 
 > [!NOTE]
 > PyPI checks passwords against the [Have I Been Pwned](https://haveibeenpwned.com/) database and will warn you if your password has appeared in known data breaches. Always use a unique, strong password for your PyPI account[^10].
@@ -593,6 +611,8 @@ Trusted Publishing eliminates the need for long-lived PyPI API tokens by using O
 - Use **per-job** `permissions` (not workflow-level) to limit elevated credentials to only the publish job[^11]
 - Treat your Trusted Publishers as if they are API tokens — weaknesses in CI/CD workflows that you register as Trusted Publishers can be equivalent to credential compromise[^11]
 - When offboarding a project maintainer, review and remove any Trusted Publishers they may have registered[^11]
+
+Trusted Publishing also provides a valuable signal to downstream users through [Digital Attestations](https://docs.pypi.org/attestations/). Users can detect when a release *hasn't* been published using the typical release workflow, drawing more scrutiny to potentially compromised versions[^1].
 
 Trusted Publishing supports GitHub Actions, GitLab CI/CD (including self-managed instances), Google Cloud Build, and ActiveState[^12].
 
@@ -677,12 +697,15 @@ Your CI/CD release pipeline is a critical part of your supply chain. A compromis
 
 ### Additional CI/CD hardening measures
 
+- **Avoid insecure triggers.** Workflows that can be triggered by an attacker with controlled inputs (such as PR titles, branch titles) have been used to inject commands. The `pull_request_target` trigger from GitHub Actions in particular is difficult to use securely and should be avoided[^1][^3]
+- **Sanitize parameters and inputs.** Any workflow parameter or input that can expand into an executed command carries potential for template injection. Pass values as environment variables to commands instead of interpolating them directly[^1]
+- **Use reviewable deployments.** Trusted Publishers for GitHub supports "GitHub Environments" as a required step, meaning publishing your package to PyPI requires a review from your GitHub account — a higher bar for attackers to clear[^1]
 - **Use `pinact`** to automatically pin actions to their commit SHAs[^3]
-- **Require manual approval** from multiple team members before release workflows execute, using GitHub environment protection rules[^3]
 - **Disable caching during release builds** to prevent cache poisoning attacks[^3]
-- **Forbid dangerous triggers** like `pull_request_target` and `workflow_run` that can be exploited for code injection[^3]
 - **Use deployment environments** to isolate secrets rather than storing them at the organization level[^3]
 - **Protect release tags** so only maintainers can create or modify tags matching your release pattern (e.g., `v*`)[^11]
+
+If you are using GitHub Actions, PyPI highly recommends the tool [zizmor](https://github.com/zizmorcore/zizmor/) for detecting and fixing insecure workflows[^1].
 
 ---
 
@@ -787,7 +810,7 @@ Package health encompasses more than just known vulnerabilities — it includes 
 
 **PyPI Security Best Practices** © [Liran Tal](https://github.com/lirantal), Released under [Apache 2.0](./LICENSE) License.
 
-[^1]: [LiteLLM/Telnyx Supply Chain Attack Incident Report (March 2026)](https://blog.pypi.org/posts/2026-04-02-incident-report-litellm-telnyx-supply-chain-attack/) — Malicious versions of litellm and telnyx published to PyPI via compromised CI/CD credentials, exfiltrating environment variables, SSH keys, and cloud credentials. See also: [LiteLLM Security Update](https://docs.litellm.ai/blog/security-update-march-2026), [Datadog Security Labs analysis](https://securitylabs.datadoghq.com/articles/litellm-compromised-pypi-teampcp-supply-chain-campaign/), [Snyk analysis](https://snyk.io/blog/poisoned-security-scanner-backdooring-litellm/)
+[^1]: [LiteLLM/Telnyx Supply Chain Attack Incident Report (March 2026)](https://blog.pypi.org/posts/2026-04-02-incident-report-litellm-telnyx-supply-chain-attack/) — Malicious versions of litellm (2h 32m exposure, 119k+ downloads) and telnyx (3h 42m exposure) published to PyPI via compromised Trivy CI/CD dependency, exfiltrating credentials and sensitive files. 40-50% of LiteLLM installs were unpinned. See also: [LiteLLM Security Update](https://docs.litellm.ai/blog/security-update-march-2026), [Datadog Security Labs analysis](https://securitylabs.datadoghq.com/articles/litellm-compromised-pypi-teampcp-supply-chain-campaign/), [Snyk analysis](https://snyk.io/blog/poisoned-security-scanner-backdooring-litellm/)
 [^2]: [Ultralytics Supply Chain Compromise](https://blog.pypi.org/posts/2024-12-11-ultralytics-attack-analysis/) — Compromised PyPI package via GitHub Actions cache poisoning
 [^3]: [Open Source Security at Astral](https://astral.sh/blog/open-source-security-at-astral) — Astral's comprehensive security practices for uv and Ruff, including CI/CD hardening, trusted publishing, Sigstore attestations, and dependency management
 [^4]: [How to Protect Against Python Supply Chain Attacks with uv](https://pydevtools.com/handbook/how-to/how-to-protect-against-python-supply-chain-attacks-with-uv/) — Practical guide to uv's `exclude-newer` feature for dependency cooldowns
@@ -801,3 +824,4 @@ Package health encompasses more than just known vulnerabilities — it includes 
 [^12]: [PyPI Trusted Publishers Documentation](https://docs.pypi.org/trusted-publishers/) — Setup guide for configuring Trusted Publishing with OIDC
 [^13]: [PEP 740 — Index Support for Digital Attestations](https://peps.python.org/pep-0740/) — Specification for digital attestations on Python package indexes
 [^14]: [PyPI Now Supports Digital Attestations](https://blog.pypi.org/posts/2024-11-14-pypi-now-supports-digital-attestations/) — Announcement and technical details of Sigstore-powered attestations on PyPI
+[^15]: [What's New in pip 26.0 — Excluding Distributions by Upload Time](https://ichard26.github.io/blog/2026/01/whats-new-in-pip-26.0/#excluding-distributions-by-upload-time) — pip v26.0 absolute cooldowns, pip v26.1 relative duration support
