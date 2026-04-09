@@ -1,0 +1,57 @@
+--- a/README.md
++++ b/README.md
+@@ -10,7 +10,7 @@
+ <!-- Shields -->
+ <p align="center">
+  <img src="https://cdn.rawgit.com/sindresorhus/awesome/d7305f38d29fed78fa85652e3a63e154dd8e8829/media/badge.svg" alt="Awesome" />
+- <img src="https://badgen.net/badge/total%20best%20practices/16/blue" alt="PyPI security best practices" />
++ <img src="https://badgen.net/badge/total%20best%20practices/17/blue" alt="PyPI security best practices" />
+  <img src="https://badgen.net/badge/Last%20Update/Apr%2026/green" />
+  <a href="https://www.github.com/lirantal/npm-security-best-practices" target="_blank">
+   <img src="https://badgen.net/badge/PyPI/Security Best Practices/purple" alt="PyPI Security Best Practices"/>
+@@ -67,6 +67,7 @@
+ 
+ - 15 [Generate and Track SBOMs](#15-generate-and-track-sboms)
+ - 16 [Consult Vulnerability Databases for Package Health](#16-consult-vulnerability-databases-for-package-health)
++- 17 [Verify Published Package Contents](#17-verify-published-package-contents)
+ 
+ ---
+ 
+@@ -806,6 +807,37 @@
+ 
+ ---
+ 
++## 17. Verify Published Package Contents
++
++> [!WARNING]
++> The source code on GitHub may not match what is actually published to PyPI. Attackers who compromise a build pipeline can inject malicious code into published packages while the repository source remains clean — as demonstrated in the Ultralytics compromise[^2], where GitHub Actions cache poisoning produced builds that did not match the tagged source.
++
++PyPI does not display package source code — it shows the README and metadata provided by the package author. Unlike a source repository, there is no way to browse or diff the actual installed code on pypi.org. This means a package's PyPI page can appear legitimate while the published sdist or wheel contains entirely different code. Additionally, a package's sdist (source distribution) and wheel (binary distribution) may contain different files from each other.
++
++> [!TIP]
++> **Security Best Practice**: Do not rely solely on a package's PyPI page or GitHub repository to evaluate its safety. Inspect the actual contents of published distributions before adoption, and prefer packages with attestations that cryptographically link builds to source commits[^13][^14].
++
++> [!NOTE]
++> **How to implement?**
++>
++> Download and inspect a package's published wheel without installing it:
++> ```bash
++> $ uv pip download <package-name> --no-deps -d ./inspect
++> $ unzip ./inspect/<package-name>-*.whl -d ./inspect/unpacked
++> ```
++>
++> Or inspect a source distribution:
++> ```bash
++> $ uv pip download <package-name> --no-deps --no-binary :all: -d ./inspect
++> $ tar -tzf ./inspect/<package-name>-*.tar.gz
++> ```
++>
++> Compare the published contents against the GitHub source at the tagged release to verify they match.
++
++For packages that use Trusted Publishing with attestations (see [section 12](#12-publish-with-package-attestations)), you can verify the cryptographic link between the published artifact and the source repository and build workflow, providing much stronger assurance than manual inspection alone.
++
++---
++
+ ## Author
+ 
+ **PyPI Security Best Practices** © [Liran Tal](https://github.com/lirantal), Released under [Apache 2.0](./LICENSE) License.
