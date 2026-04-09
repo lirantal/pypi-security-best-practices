@@ -12,7 +12,7 @@
  <img src="https://cdn.rawgit.com/sindresorhus/awesome/d7305f38d29fed78fa85652e3a63e154dd8e8829/media/badge.svg" alt="Awesome" />
  <img src="https://badgen.net/badge/total%20best%20practices/16/blue" alt="PyPI security best practices" />
  <img src="https://badgen.net/badge/Last%20Update/Apr%209/green" />
- <a href="https://www.github.com/lirantal/npm-security-best-practices" target="_blank">
+ <a href="https://www.github.com/lirantal/pypi-security-best-practices" target="_blank">
   <img src="https://badgen.net/badge/PyPI/Security Best Practices/purple" alt="PyPI Security Best Practices"/>
  </a>
 </p>
