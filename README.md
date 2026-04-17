@@ -435,9 +435,10 @@ Installing a new ad-hoc Python package can expose your system to supply chain at
 > [!NOTE]
 > **How to implement?**
 >
-> Install `sfw` globally:
+> Install `sfw` globally using pnpm:
 > ```bash
-> $ npm install -g sfw
+> $ npm install -g pnpm
+> $ pnpm add -g sfw
 > ```
 >
 > Socket Firewall Free runs in wrapper mode. Prefix your package manager command with `sfw`:
