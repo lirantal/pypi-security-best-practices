@@ -142,8 +142,22 @@ Attackers exploit PyPI's versioning and publishing model to push malicious versi
 > $ uv lock --exclude-newer "7 days"
 > $ uv sync --exclude-newer "7 days"
 > ```
+>
+> Or as an environment variable (useful for CI/containers):
+> ```bash
+> $ export UV_EXCLUDE_NEWER="7 days"
+> ```
 
 `exclude-newer` accepts friendly durations (`"7 days"`, `"1 week"`, `"30 days"`), ISO 8601 durations (`"P7D"`), or RFC 3339 timestamps (`"2026-03-20T00:00:00Z"`).
+
+uv also supports **per-package overrides** via `exclude-newer-package` if you need to exempt specific packages from the cooldown (e.g., to pull in an urgent security patch without disabling the cooldown globally):
+
+```toml
+# pyproject.toml
+[tool.uv]
+exclude-newer = "7 days"
+exclude-newer-package = { requests = "1 day" }
+```
 
 > [!CAUTION]
 > When `exclude-newer` filters out a package version, uv does not mention it in error messages. If you encounter unexpected resolution failures, temporarily removing the cooldown can help diagnose whether a recent release is required[^6].
@@ -180,6 +194,12 @@ With pip v26.0, only absolute timestamps are supported, typically paired with `d
 $ python -m pip install \
   --uploaded-prior-to=$(date -d '-3days' -Idate) \
   <package-name>
+```
+
+For containers or ephemeral CI environments, set an absolute date via environment variable:
+
+```bash
+$ export PIP_UPLOADED_PRIOR_TO="2026-03-27"
 ```
 
 > [!TIP]
