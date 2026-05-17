@@ -859,6 +859,10 @@ For packages that use Trusted Publishing with attestations (see [section 12](#12
 
 ---
 
+## Contributing
+
+Please consult [CONTRIBUTING](./CONTRIBUTING.md) for guidelines on contributing to this project.
+
 ## Author
 
 **PyPI Security Best Practices** © [Liran Tal](https://github.com/lirantal), Released under [Apache 2.0](./LICENSE) License.
